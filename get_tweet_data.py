@@ -11,18 +11,24 @@ def auth():
     return os.environ.get("BEARER_TOKEN")
 
 def get_tweet_list():
+    old_ids = get_previous_data()
     with open(os.path.dirname(os.path.abspath(__file__)) + "/citations.json", "r") as f:
         x = f.read()
     tweet_dicts = json.loads(x)
     tweet_ids = []
+    group_of_100 = []
     for d in tweet_dicts:
         resp_id = list(d.keys())[0]
         for dic in d[resp_id]:
-            tweet_ids.append(dic['tweet_id'])
+            if dic['tweet_id'] not in old_ids:
+                group_of_100.append(dic['tweet_id'])
+            if len(group_of_100) == 100:
+                tweet_ids.append(group_of_100)
+                group_of_100 = []
     return tweet_ids
 
 def create_url(tweet_id):
-    tweet_fields = "tweet.fields=created_at,text"
+    tweet_fields = "tweet.fields=created_at,text,source"
     # Tweet fields are adjustable.
     # Options include:
     # attachments, author_id, context_annotations,
@@ -53,23 +59,50 @@ def connect_to_endpoint(url, headers):
         )
     return response.json()
 
+def get_previous_data():
+    with open(os.path.dirname(os.path.abspath(__file__)) + "/tweet_text.json", "r") as f:
+        y = f.read()
+    return [item['id'] for item in json.loads(y)]
+
 
 def main():
     bearer_token = auth()
+    previous = get_previous_data()
     tweets = []
-    for tweet_id in get_tweet_list():
-        url = create_url(tweet_id)
+    counter = 0
+    for group in get_tweet_list():
+        if counter ==  179:
+            with open(os.path.dirname(os.path.abspath(__file__)) + "/tweet_text.json", "r") as f:
+                x = f.read()
+            prev_tweets = json.loads(x) + tweets
+            my_json = json.dumps(prev_tweets, indent = 4)
+            with open(os.path.dirname(os.path.abspath(__file__)) + "/tweet_text.json", "w") as f:
+                f.write(my_json)
+            tweets = []
+            counter = 0
+            time.sleep(900)
+        counter += 1
+        url = create_url(','.join(group))
         headers = create_headers(bearer_token)
         json_response = connect_to_endpoint(url, headers)
         try:
-            text = json_response['data'][0]['text']
-            created = json_response['data'][0]['created_at']
-            tweets.append({'id': tweet_id, 'text': text, 'created_at': created})
+            for tweet in json_response['data']:
+                try:
+                    text = tweet['text']
+                    created = tweet['created_at']
+                    tweet_id = tweet['id']
+                    source = tweet['source']
+                    tweets.append({'id': tweet_id, 'text': text, 'created_at': created, 'source': source})
+                except:
+                    continue
         except:
             continue
-    json_object = json.dumps(tweets, indent = 4)
+    with open(os.path.dirname(os.path.abspath(__file__)) + "/tweet_text.json", "r") as f:
+        x = f.read()
+    prev_tweets = json.loads(x) + tweets
+    my_json = json.dumps(prev_tweets, indent = 4)
     with open(os.path.dirname(os.path.abspath(__file__)) + "/tweet_text.json", "w") as f:
-        f.write(json_object)
+        f.write(my_json)
 
 if __name__ == "__main__":
     main()
